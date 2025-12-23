@@ -12,13 +12,16 @@ class HX711:
         self._set_gain()
 
     def _set_gain(self):
-        self.read()
         if self.gain == 128:
             self._gain_pulses = 1
         elif self.gain == 64:
             self._gain_pulses = 3
         elif self.gain == 32:
             self._gain_pulses = 2
+        else:
+            self._gain_pulses = 1
+
+        self.read()  # dummy read to apply gain
 
     def is_ready(self):
         return self.dt.value() == 0
