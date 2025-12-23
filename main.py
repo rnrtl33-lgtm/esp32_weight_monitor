@@ -39,7 +39,7 @@ print("READY")
 
 # -------- TIMING --------
 READ_INTERVAL = 2                 # قراءة كل 2 ثانية
-SEND_INTERVAL = 10 * 60           # إرسال كل 10 دقائق
+SEND_INTERVAL =  60           # إرسال كل 10 دقائق
 RESET_INTERVAL = 6 * 60 * 60      # Reset كل 6 ساعات
 
 last_send = time.time()
