@@ -1,17 +1,58 @@
-# ==========================================
-# ESP32 WEIGHT MONITOR + ThingSpeak
-# AUTO RESET EVERY 6 HOURS (OTA SAFE)
-# ==========================================
-
-print("ESP32 WEIGHT MONITOR - BOOT OK")
+# =====================================================
+# ESP32 DUAL WEIGHT SYSTEM
+# AUTO OTA FROM GITHUB + AUTO RESET
+# =====================================================
 
 import time, gc, machine
-import urequests
-from lib.hx711_esp32 import HX711
+import network, urequests
+from lib.hx711 import HX711
 
-# -------- ThingSpeak --------
-API_A = "EU6EE36IJ7WSVYP3"
-API_B = "E8CTAK8MCUWLVQJ2"
+# ================= WIFI =================
+SSID = "stc_wifi_8105"
+PASSWORD = "bfw6qrn7tu3"
+
+def connect_wifi():
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    if not wlan.isconnected():
+        wlan.connect(SSID, PASSWORD)
+        for _ in range(20):
+            if wlan.isconnected():
+                break
+            time.sleep(1)
+    return wlan.isconnected()
+
+connect_wifi()
+
+# ================= OTA =================
+# رابط raw لملف main.py في GitHub
+OTA_URL = "https://raw.githubusercontent.com/rnrt33-lgtm/esp32_weight_monitor/main/main.py"
+VERSION = "v1.0"   # غيّرها يدويًا عند أي تعديل
+
+def ota_check():
+    try:
+        r = urequests.get(OTA_URL)
+        code = r.text
+        r.close()
+
+        if VERSION not in code:
+            print("NEW VERSION FOUND → UPDATING")
+            with open("main.py", "w") as f:
+                f.write(code)
+            time.sleep(2)
+            machine.reset()
+        else:
+            print("OTA: NO UPDATE")
+
+    except Exception as e:
+        print("OTA ERROR:", e)
+
+# فحص OTA عند الإقلاع
+ota_check()
+
+# ================= THINGSPEAK =================
+API_KEY_A = "EU6EE36IJ7WSVYP3"
+API_KEY_B = "E8CTAK8MCUWLVQJ2"
 
 def send_ts(api, value):
     url = "https://api.thingspeak.com/update?api_key={}&field4={}".format(
@@ -20,61 +61,63 @@ def send_ts(api, value):
     try:
         r = urequests.get(url)
         r.close()
-        print("TS SENT:", value)
-    except Exception as e:
-        print("TS ERROR:", e)
+    except:
+        pass
 
-# -------- HX711 --------
-hxA = HX711(dt=34, sck=33)   # A → 5kg
-hxB = HX711(dt=35, sck=32)   # B → 1kg
+# ================= HX711 =================
+hxA = HX711(dt=34, sck=33)
+hxA.offset = 46770.14
+hxA.scale  = 410.05076
 
-hxA.scale = 413.8759
-hxB.scale = 708.0524
+hxB = HX711(dt=35, sck=32)
+hxB.offset = 24163.08
+hxB.scale  = 416.56064
 
-print("TARING...")
-time.sleep(3)
-hxA.tare(50)
-hxB.tare(50)
-print("READY")
+# ================= FILTER =================
+N = 7
+bufA, bufB = [], []
+last_A = None
+last_B = None
+DELTA_G = 5
 
-# -------- TIMING --------
-READ_INTERVAL = 2                 # قراءة كل 2 ثانية
-SEND_INTERVAL =  60           # إرسال كل 10 دقائق
-RESET_INTERVAL = 6 * 60 * 60      # Reset كل 6 ساعات
+# ================= TIMING =================
+READ_INTERVAL  = 1
+SEND_INTERVAL  = 60
+RESET_INTERVAL = 6 * 60 * 60   # 6 ساعات
 
-last_send = time.time()
 start_time = time.time()
+last_send = start_time
 
-last_A = 0
-last_B = 0
-DELTA_G = 5                       # تجاهل الضجيج أقل من 5g
+print("SYSTEM RUNNING")
 
-# ==========================
-# MAIN LOOP
-# ==========================
+# ================= MAIN LOOP =================
 while True:
     try:
         wA = (hxA.read() - hxA.offset) / hxA.scale
         wB = (hxB.read() - hxB.offset) / hxB.scale
 
-        print("A:", round(wA,1), "g | B:", round(wB,1), "g")
+        bufA.append(wA); bufB.append(wB)
+        if len(bufA) > N: bufA.pop(0)
+        if len(bufB) > N: bufB.pop(0)
+
+        avgA = sum(bufA) / len(bufA)
+        avgB = sum(bufB) / len(bufB)
 
         now = time.time()
 
-        # ----- SEND -----
         if now - last_send >= SEND_INTERVAL:
-            if abs(wA - last_A) >= DELTA_G:
-                send_ts(API_A, wA)
-                last_A = wA
+            if last_A is None or abs(avgA - last_A) >= DELTA_G:
+                send_ts(API_KEY_A, avgA)
+                last_A = avgA
 
-            if abs(wB - last_B) >= DELTA_G:
-                send_ts(API_B, wB)
-                last_B = wB
+            if last_B is None or abs(avgB - last_B) >= DELTA_G:
+                send_ts(API_KEY_B, avgB)
+                last_B = avgB
 
             last_send = now
             gc.collect()
 
-        # ----- AUTO RESET (OTA CHECK) -----
+        # -------- AUTO RESET + OTA --------
         if now - start_time >= RESET_INTERVAL:
             print("AUTO RESET FOR OTA CHECK")
             time.sleep(2)
