@@ -8,7 +8,7 @@ from lib.hx711 import HX711
 
 # ================= WIFI =================
 SSID = "stc_wifi_8105"
-PASSWORD = "bfw6qrn7tu3"
+PASSWORD = "bfw6qtn7tu3"
 
 def connect_wifi():
     wlan = network.WLAN(network.STA_IF)
